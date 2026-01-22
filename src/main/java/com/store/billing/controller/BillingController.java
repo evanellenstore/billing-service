@@ -1,13 +1,24 @@
 package com.store.billing.controller;
 
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.store.billing.dto.BillingRequest;
 import com.store.billing.entity.Bill;
+import com.store.billing.entity.Billing;
 import com.store.billing.repository.BillRepository;
 import com.store.billing.service.BillingService;
-import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
+import lombok.RequiredArgsConstructor;
 
 @RestController
 @RequestMapping("/billings")
@@ -37,5 +48,17 @@ public class BillingController {
     public Bill getByPurchase(@PathVariable Long purchaseId) {
         return billRepository.findByPurchaseId(purchaseId)
                 .orElseThrow(() -> new RuntimeException("Bill not found"));
+    }
+
+
+    @PostMapping("/start")
+    public ResponseEntity<?> startBill(@RequestParam String userName) {
+        String shopId = "SHOP_01";
+        Billing billing = billingService.startBill(shopId, userName);
+        return ResponseEntity.ok(
+                Map.of(
+                        "billId", billing.getBillId(),
+                        "status", billing.getStatus(),
+                        "createdAt", billing.getCreatedAt()));
     }
 }

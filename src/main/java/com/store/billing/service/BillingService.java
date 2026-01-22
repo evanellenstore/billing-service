@@ -1,15 +1,22 @@
 package com.store.billing.service;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.store.billing.client.PurchaseServiceClient;
 import com.store.billing.dto.BillingRequest;
 import com.store.billing.dto.PurchaseDTO;
 import com.store.billing.entity.Bill;
+import com.store.billing.entity.BillStatus;
+import com.store.billing.entity.Billing;
 import com.store.billing.repository.BillRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import com.store.billing.repository.BillingRepository;
 
-import java.time.LocalDateTime;
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
@@ -17,6 +24,8 @@ public class BillingService {
 
     private final BillRepository billRepository;
     private final PurchaseServiceClient purchaseClient;
+
+    private final BillingRepository billingRepository;
 
     private static final double TAX_RATE = 0.18; // 18% GST
 
@@ -43,5 +52,24 @@ public class BillingService {
                 .build();
 
         return billRepository.save(bill);
+    }
+
+
+
+    public Billing startBill(String shopId, String userName) {
+        Billing billing = Billing.builder()
+                .billId(generateBillId())
+                .shopId(shopId)
+                .createdBy(userName)
+                .status(BillStatus.IN_PROGRESS)
+                .createdAt(LocalDateTime.now())
+                .build();
+        return billingRepository.save(billing);
+    }
+
+
+
+    private String generateBillId() {
+        return "BILL_" + LocalDate.now() + "_" + UUID.randomUUID().toString().substring(0, 6);
     }
 }

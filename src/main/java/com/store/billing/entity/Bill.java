@@ -24,5 +24,5 @@ public class Bill {
     private Double taxAmount;
     private Double totalAmount;
 
-    private LocalDateTime billedAt;
+    private LocalDateTime billedAt; 
 }
