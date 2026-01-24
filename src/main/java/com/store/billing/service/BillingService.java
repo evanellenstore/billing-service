@@ -15,6 +15,13 @@ import com.store.billing.entity.BillStatus;
 import com.store.billing.entity.Billing;
 import com.store.billing.repository.BillRepository;
 import com.store.billing.repository.BillingRepository;
+import com.store.billing.repository.BillItemRepository;
+import com.store.billing.entity.BillItem;
+import com.store.billing.client.InventoryServiceClient;
+import com.store.billing.dto.ReserveRequest;
+import com.store.billing.dto.AdjustRequest;
+import java.util.Map;
+import java.util.List;
 
 import lombok.RequiredArgsConstructor;
 
@@ -26,6 +33,8 @@ public class BillingService {
     private final PurchaseServiceClient purchaseClient;
 
     private final BillingRepository billingRepository;
+    private final BillItemRepository billItemRepository;
+    private final InventoryServiceClient inventoryClient;
 
     private static final double TAX_RATE = 0.18; // 18% GST
 
@@ -65,6 +74,66 @@ public class BillingService {
                 .createdAt(LocalDateTime.now())
                 .build();
         return billingRepository.save(billing);
+    }
+
+    @Transactional
+    public void addItemToBill(String billId, Map<String, Object> payload) {
+        // payload expected: { productId, batchNo, name, sku, price, quantity }
+        Long productId = Long.valueOf(String.valueOf(payload.get("productId")));
+        String batchNo = (String) payload.getOrDefault("batchNo", null);
+        String name = (String) payload.getOrDefault("name", null);
+        String sku = (String) payload.getOrDefault("sku", null);
+        Integer qty = Integer.valueOf(String.valueOf(payload.getOrDefault("quantity", 0)));
+        Double price = Double.valueOf(String.valueOf(payload.getOrDefault("price", 0)));
+        LocalDate expiryDate = payload.get("expiryDate") != null ? LocalDate.parse((String) payload.get("expiryDate")) : null;
+
+        BillItem item = BillItem.builder()
+                .billId(billId)
+                .productId(productId)
+                .batchNo(batchNo)
+                .name(name)
+                .sku(sku)
+                .quantity(qty)
+                .price(price)
+                .expiryDate(expiryDate)
+                .build();
+
+        billItemRepository.save(item);
+
+        // reserve stock for this item immediately (pass batchNo as request param if available)
+        if (batchNo != null) {
+            inventoryClient.reserve(productId, batchNo, new ReserveRequest(qty, "BILL_CREATE"));
+        } else {
+            inventoryClient.reserve(productId, "", new ReserveRequest(qty, "BILL_CREATE"));
+        }
+    }
+
+    @Transactional
+    public void addItemsBatch(String billId, java.util.List<Map<String, Object>> items) {
+        // process items one by one to preserve order and server-side consistency
+        for (Map<String, Object> p : items) {
+            addItemToBill(billId, p);
+        }
+    }
+
+    @Transactional
+    public void finalizeBill(String billId, Map<String, Object> payment) {
+        // find items and adjust stock (OUT)
+        List<BillItem> items = billItemRepository.findByBillId(billId);
+        for (BillItem it : items) {
+            AdjustRequest adj = new AdjustRequest();
+            adj.setQuantity(it.getQuantity());
+            adj.setType("OUT");
+            adj.setRemarks("SALE_FINALIZE");
+            adj.setExpiryDate(it.getExpiryDate());
+            inventoryClient.adjustStock(it.getProductId(), adj);
+        }
+
+        // mark billing completed
+        Billing billing = billingRepository.findByBillId(billId)
+                .orElseThrow(() -> new RuntimeException("Billing not found"));
+    billing.setStatus(com.store.billing.entity.BillStatus.PAID);
+        billingRepository.save(billing);
     }
 
 

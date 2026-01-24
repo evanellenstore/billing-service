@@ -15,3 +15,8 @@ spring:
 purchase:
   service:
     url: http://localhost:2021
+
+
+inventory:
+  service:
+    url: http://localhost:2011 

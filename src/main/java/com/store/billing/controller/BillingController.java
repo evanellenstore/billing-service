@@ -61,4 +61,18 @@ public class BillingController {
                         "status", billing.getStatus(),
                         "createdAt", billing.getCreatedAt()));
     }
+
+    @PostMapping("/{billId}/items")
+    public ResponseEntity<?> addItemsBatch(@PathVariable String billId, @RequestBody java.util.List<java.util.Map<String, Object>> items) {
+        billingService.addItemsBatch(billId, items);
+        return ResponseEntity.ok(Map.of("status", "reserved", "count", items.size()));
+    }
+
+    @PostMapping("/{billId}/finalize")
+    public ResponseEntity<?> finalize(@PathVariable String billId, @RequestBody(required = false) java.util.Map<String, Object> payment) {
+        billingService.finalizeBill(billId, payment == null ? java.util.Map.of() : payment);
+        return ResponseEntity.ok(Map.of("status", "completed", "billId", billId));
+    }
+
+    // Single-item add and duplicate finalize endpoints removed in favour of batch add and single finalize above.
 }
