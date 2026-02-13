@@ -3,9 +3,9 @@ server:
 
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/billing_db
+    url: jdbc:mysql://localhost:3307/billing_db
     username: root
-    password: ellenverma
+    password: root
   jpa:
     hibernate:
       ddl-auto: update
