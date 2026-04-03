@@ -78,33 +78,74 @@ public class BillingService {
 
     @Transactional
     public void addItemToBill(String billId, Map<String, Object> payload) {
-        // payload expected: { productId, batchNo, name, sku, price, quantity }
+        // payload can be:
+        // 1. Single-batch: { productId, batchNo, name, sku, price, quantity, expiryDate }
+        // 2. Multi-batch: { productId, name, sku, price, batches: [ { batchNo, quantity, expiryDate }, ... ] }
+        
         Long productId = Long.valueOf(String.valueOf(payload.get("productId")));
-        String batchNo = (String) payload.getOrDefault("batchNo", null);
         String name = (String) payload.getOrDefault("name", null);
         String sku = (String) payload.getOrDefault("sku", null);
-        Integer qty = Integer.valueOf(String.valueOf(payload.getOrDefault("quantity", 0)));
         Double price = Double.valueOf(String.valueOf(payload.getOrDefault("price", 0)));
-        LocalDate expiryDate = payload.get("expiryDate") != null ? LocalDate.parse((String) payload.get("expiryDate")) : null;
 
-        BillItem item = BillItem.builder()
-                .billId(billId)
-                .productId(productId)
-                .batchNo(batchNo)
-                .name(name)
-                .sku(sku)
-                .quantity(qty)
-                .price(price)
-                .expiryDate(expiryDate)
-                .build();
+        // Check if multi-batch format (batches array) or single-batch format
+        @SuppressWarnings("unchecked")
+        java.util.List<Map<String, Object>> batchList = (java.util.List<Map<String, Object>>) payload.get("batches");
+        
+        if (batchList != null && !batchList.isEmpty()) {
+            // Multi-batch scenario: iterate each batch allocation and create separate BillItem
+            for (Map<String, Object> batchSpec : batchList) {
+                String batchNo = (String) batchSpec.getOrDefault("batchNo", null);
+                Integer qty = Integer.valueOf(String.valueOf(batchSpec.getOrDefault("quantity", 0)));
+                LocalDate expiryDate = batchSpec.get("expiryDate") != null 
+                    ? LocalDate.parse((String) batchSpec.get("expiryDate")) 
+                    : null;
 
-        billItemRepository.save(item);
+                // Save individual batch allocation as separate BillItem
+                BillItem item = BillItem.builder()
+                        .billId(billId)
+                        .productId(productId)
+                        .batchNo(batchNo)
+                        .name(name)
+                        .sku(sku)
+                        .quantity(qty)
+                        .price(price)
+                        .expiryDate(expiryDate)
+                        .build();
+                billItemRepository.save(item);
 
-        // reserve stock for this item immediately (pass batchNo as request param if available)
-        if (batchNo != null) {
-            inventoryClient.reserve(productId, batchNo, new ReserveRequest(qty, "BILL_CREATE"));
+                // Reserve stock for this batch allocation
+                if (batchNo != null) {
+                    inventoryClient.reserve(productId, batchNo, new ReserveRequest(qty, "BILL_CREATE"));
+                } else {
+                    inventoryClient.reserve(productId, "", new ReserveRequest(qty, "BILL_CREATE"));
+                }
+            }
         } else {
-            inventoryClient.reserve(productId, "", new ReserveRequest(qty, "BILL_CREATE"));
+            // Single-batch scenario: backward compatible
+            String batchNo = (String) payload.getOrDefault("batchNo", null);
+            Integer qty = Integer.valueOf(String.valueOf(payload.getOrDefault("quantity", 0)));
+            LocalDate expiryDate = payload.get("expiryDate") != null 
+                ? LocalDate.parse((String) payload.get("expiryDate")) 
+                : null;
+
+            BillItem item = BillItem.builder()
+                    .billId(billId)
+                    .productId(productId)
+                    .batchNo(batchNo)
+                    .name(name)
+                    .sku(sku)
+                    .quantity(qty)
+                    .price(price)
+                    .expiryDate(expiryDate)
+                    .build();
+            billItemRepository.save(item);
+
+            // Reserve stock
+            if (batchNo != null) {
+                inventoryClient.reserve(productId, batchNo, new ReserveRequest(qty, "BILL_CREATE"));
+            } else {
+                inventoryClient.reserve(productId, "", new ReserveRequest(qty, "BILL_CREATE"));
+            }
         }
     }
 
