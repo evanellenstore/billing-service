@@ -50,6 +50,11 @@ public class BillingController {
                 .orElseThrow(() -> new RuntimeException("Bill not found"));
     }
 
+    @GetMapping("/customer/{customerId}")
+    public List<Bill> getByCustomerId(@PathVariable String customerId) {
+        return billRepository.findByCustomerIdOrderByBilledAtDesc(customerId);
+    }
+
 
     @PostMapping("/start")
     public ResponseEntity<?> startBill(@RequestParam String userName) {

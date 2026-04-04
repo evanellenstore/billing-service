@@ -6,7 +6,7 @@ import lombok.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "bills")
+@Table(name = "bills", uniqueConstraints = {@UniqueConstraint(columnNames = "bill_id")})
 @Getter
 @Setter
 @Builder
@@ -20,7 +20,14 @@ public class Bill {
 
     private Long purchaseId;
 
+    @Column(name = "customer_id")
+    private String customerId;
+
+    @Column(name = "bill_id", unique = true, nullable = false)
+    private String billId;
+
     private Double subTotal;
+    private Double discount;
     private Double taxAmount;
     private Double totalAmount;
 

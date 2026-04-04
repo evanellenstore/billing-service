@@ -159,8 +159,43 @@ public class BillingService {
 
     @Transactional
     public void finalizeBill(String billId, Map<String, Object> payment) {
+        // Extract data from payment payload
+        String customerId = payment != null ? (String) payment.get("customerId") : null;
+        Double discountAmount = payment != null && payment.get("discount") != null ? 
+                Double.valueOf(String.valueOf(payment.get("discount"))) : 0.0;
+        Double gstAmount = payment != null && payment.get("gst") != null ? 
+                Double.valueOf(String.valueOf(payment.get("gst"))) : 0.0;
+        Double grandTotal = payment != null && payment.get("grandTotal") != null ?
+                Double.valueOf(String.valueOf(payment.get("grandTotal"))) : null;
+        
         // find items and adjust stock (OUT)
         List<BillItem> items = billItemRepository.findByBillId(billId);
+        
+        // Calculate subtotal from items
+        Double subTotal = items.stream()
+                .mapToDouble(item -> (item.getPrice() != null ? item.getPrice() : 0.0) * 
+                        (item.getQuantity() != null ? item.getQuantity() : 0))
+                .sum();
+        
+        // If no items or subTotal is 0, use grandTotal from payload as subTotal
+        if (subTotal == 0 && grandTotal != null) {
+            subTotal = grandTotal;
+        }
+        
+        // Calculate total amount: subTotal - discount + gst
+        Double totalAmount = subTotal - discountAmount + gstAmount;
+        
+        // Log for debugging
+        System.out.println("=== FINALIZE BILL DEBUG ===");
+        System.out.println("billId: " + billId);
+        System.out.println("customerId: " + customerId);
+        System.out.println("subTotal: " + subTotal);
+        System.out.println("discount: " + discountAmount);
+        System.out.println("gst: " + gstAmount);
+        System.out.println("totalAmount: " + totalAmount);
+        System.out.println("items count: " + items.size());
+        
+        // Adjust stock for each item
         for (BillItem it : items) {
             AdjustRequest adj = new AdjustRequest();
             adj.setQuantity(it.getQuantity());
@@ -173,11 +208,41 @@ public class BillingService {
         // mark billing completed
         Billing billing = billingRepository.findByBillId(billId)
                 .orElseThrow(() -> new RuntimeException("Billing not found"));
-    billing.setStatus(com.store.billing.entity.BillStatus.PAID);
+        billing.setStatus(com.store.billing.entity.BillStatus.PAID);
         billingRepository.save(billing);
+        
+        // Create and save Bill entity with all details
+        if (customerId != null && !customerId.isEmpty()) {
+            // Check if bill already exists
+            java.util.Optional<Bill> existingBill = billRepository.findAll().stream()
+                    .filter(b -> billId.equals(b.getBillId()))
+                    .findFirst();
+            
+            Bill bill;
+            if (existingBill.isPresent()) {
+                // Update existing bill
+                bill = existingBill.get();
+                bill.setCustomerId(customerId);
+                bill.setSubTotal(subTotal > 0 ? subTotal : null);
+                bill.setDiscount(discountAmount > 0 ? discountAmount : null);
+                bill.setTaxAmount(gstAmount > 0 ? gstAmount : null);
+                bill.setTotalAmount(totalAmount > 0 ? totalAmount : null);
+            } else {
+                // Create new bill
+                bill = Bill.builder()
+                        .billId(billId)
+                        .customerId(customerId)
+                        .subTotal(subTotal > 0 ? subTotal : null)
+                        .discount(discountAmount > 0 ? discountAmount : null)
+                        .taxAmount(gstAmount > 0 ? gstAmount : null)
+                        .totalAmount(totalAmount > 0 ? totalAmount : null)
+                        .billedAt(LocalDateTime.now())
+                        .build();
+            }
+            billRepository.save(bill);
+            System.out.println("Bill saved: " + bill);
+        }
     }
-
-
 
     private String generateBillId() {
         return "BILL_" + LocalDate.now() + "_" + UUID.randomUUID().toString().substring(0, 6);
