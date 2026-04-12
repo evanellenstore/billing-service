@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.store.billing.client.PurchaseServiceClient;
 import com.store.billing.dto.BillingRequest;
 import com.store.billing.dto.PurchaseDTO;
+import com.store.billing.dto.ProductReportDTO;
 import com.store.billing.entity.Bill;
 import com.store.billing.entity.BillStatus;
 import com.store.billing.entity.Billing;
@@ -22,6 +23,7 @@ import com.store.billing.dto.ReserveRequest;
 import com.store.billing.dto.AdjustRequest;
 import java.util.Map;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import lombok.RequiredArgsConstructor;
 
@@ -310,4 +312,27 @@ public class BillingService {
         System.out.println("✅ BILL CANCELLED: " + billId);
         System.out.println("All reserved items released back to inventory");
     }
+
+    /**
+     * Get aggregated product report data (for reporting service)
+     * Groups BillItems by productId and calculates total quantity and revenue
+     */
+    public List<ProductReportDTO> getProductReports() {
+        var billItemsByProduct = billItemRepository.findAll()
+                .stream()
+                .collect(Collectors.groupingBy(BillItem::getProductId));
+
+        return billItemsByProduct.entrySet().stream()
+                .map(entry -> ProductReportDTO.builder()
+                        .productId(entry.getKey())
+                        .totalPurchased((int) entry.getValue().stream()
+                                .mapToLong(BillItem::getQuantity)
+                                .sum())
+                        .totalRevenue(entry.getValue().stream()
+                                .mapToDouble(item -> (item.getPrice() != null ? item.getPrice() : 0) * (item.getQuantity() != null ? item.getQuantity() : 0))
+                                .sum())
+                        .build())
+                .collect(Collectors.toList());
+    }
 }
+

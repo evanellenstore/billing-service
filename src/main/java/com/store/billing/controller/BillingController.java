@@ -85,5 +85,10 @@ public class BillingController {
         return ResponseEntity.ok(Map.of("status", "cancelled", "billId", billId, "message", "Bill cancelled. All items released."));
     }
 
+    @GetMapping("/report")
+    public ResponseEntity<?> getProductReports() {
+        return ResponseEntity.ok(billingService.getProductReports());
+    }
+
     // Single-item add and duplicate finalize endpoints removed in favour of batch add and single finalize above.
 }
