@@ -115,9 +115,17 @@ public class BillingService {
 
                 // Reserve stock for this batch allocation
                 if (batchNo != null) {
-                    inventoryClient.reserve(productId, batchNo, new ReserveRequest(qty, "BILL_CREATE"));
+                    ReserveRequest req = new ReserveRequest();
+                    req.setQuantity(qty);
+                    req.setReason("BILL_CREATE");
+                    req.setReferenceId("BILL_CREATE");  // 🔑 Link to this bill for future release if needed
+                    inventoryClient.reserve(productId, batchNo, req);
                 } else {
-                    inventoryClient.reserve(productId, "", new ReserveRequest(qty, "BILL_CREATE"));
+                    ReserveRequest req = new ReserveRequest();
+                    req.setQuantity(qty);
+                    req.setReason("BILL_CREATE");
+                     req.setReferenceId("BILL_CREATE");
+                    inventoryClient.reserve(productId, "", req);
                 }
             }
         } else {
@@ -142,9 +150,17 @@ public class BillingService {
 
             // Reserve stock
             if (batchNo != null) {
-                inventoryClient.reserve(productId, batchNo, new ReserveRequest(qty, "BILL_CREATE"));
+                ReserveRequest req = new ReserveRequest();
+                req.setQuantity(qty);
+                req.setReason("BILL_CREATE");
+                 req.setReferenceId("BILL_CREATE");
+                inventoryClient.reserve(productId, batchNo, req);
             } else {
-                inventoryClient.reserve(productId, "", new ReserveRequest(qty, "BILL_CREATE"));
+                ReserveRequest req = new ReserveRequest();
+                req.setQuantity(qty);
+                req.setReason("BILL_CREATE");
+                 req.setReferenceId("BILL_CREATE");
+                inventoryClient.reserve(productId, "", req);
             }
         }
     }
@@ -202,6 +218,7 @@ public class BillingService {
             adj.setType("OUT");
             adj.setRemarks("SALE_FINALIZE");
             adj.setExpiryDate(it.getExpiryDate());
+            adj.setReferenceId("BILL_CREATE");  // 🔑 Link to RESERVE transaction
             inventoryClient.adjustStock(it.getProductId(), adj);
         }
 
@@ -210,6 +227,13 @@ public class BillingService {
                 .orElseThrow(() -> new RuntimeException("Billing not found"));
         billing.setStatus(com.store.billing.entity.BillStatus.PAID);
         billingRepository.save(billing);
+        
+        // ✅ SUCCESS MESSAGE
+        System.out.println("✅ PAYMENT DONE SUCCESSFULLY");
+        System.out.println("Bill ID: " + billId);
+        System.out.println("Total Amount: ₹" + totalAmount);
+        System.out.println("Items Sold: " + items.size());
+        System.out.println("============================");
         
         // Create and save Bill entity with all details
         if (customerId != null && !customerId.isEmpty()) {
@@ -246,5 +270,44 @@ public class BillingService {
 
     private String generateBillId() {
         return "BILL_" + LocalDate.now() + "_" + UUID.randomUUID().toString().substring(0, 6);
+    }
+
+    // =====================================
+    // 🔄 CANCEL BILL - Release all reserved items
+    // =====================================
+    @Transactional
+    public void cancelBill(String billId) {
+        // Get all items in this bill
+        List<BillItem> items = billItemRepository.findByBillId(billId);
+        
+        if (items.isEmpty()) {
+            System.out.println("⚠️ No items found in bill: " + billId);
+            return;
+        }
+
+        // Release (unreserve) each item
+        for (BillItem item : items) {
+            try {
+                ReserveRequest releaseReq = new ReserveRequest();
+                releaseReq.setQuantity(item.getQuantity());
+                releaseReq.setReferenceId("BILL_CREATE");  // Match the reference ID from reservation
+                
+                // Call inventory service to release (convert RESERVE to IN)
+                inventoryClient.releaseStock(item.getProductId(), releaseReq);
+                
+                System.out.println("✅ Released product " + item.getProductId() + ", qty: " + item.getQuantity());
+            } catch (Exception e) {
+                System.err.println("❌ Error releasing product " + item.getProductId() + ": " + e.getMessage());
+            }
+        }
+
+        // Update bill status to CANCELLED
+        Billing billing = billingRepository.findByBillId(billId)
+                .orElseThrow(() -> new RuntimeException("Billing not found: " + billId));
+        billing.setStatus(BillStatus.CANCELLED);
+        billingRepository.save(billing);
+
+        System.out.println("✅ BILL CANCELLED: " + billId);
+        System.out.println("All reserved items released back to inventory");
     }
 }

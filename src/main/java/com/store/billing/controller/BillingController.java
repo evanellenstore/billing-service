@@ -79,5 +79,11 @@ public class BillingController {
         return ResponseEntity.ok(Map.of("status", "completed", "billId", billId));
     }
 
+    @PostMapping("/{billId}/cancel")
+    public ResponseEntity<?> cancelBill(@PathVariable String billId) {
+        billingService.cancelBill(billId);
+        return ResponseEntity.ok(Map.of("status", "cancelled", "billId", billId, "message", "Bill cancelled. All items released."));
+    }
+
     // Single-item add and duplicate finalize endpoints removed in favour of batch add and single finalize above.
 }

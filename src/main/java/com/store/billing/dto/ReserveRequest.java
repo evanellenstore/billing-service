@@ -10,4 +10,5 @@ import lombok.*;
 public class ReserveRequest {
     private Integer quantity;
     private String reason;
+    private String referenceId;  // 🔑 To link reserve/release to bill
 }
