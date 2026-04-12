@@ -118,13 +118,13 @@ public class BillingService {
                     ReserveRequest req = new ReserveRequest();
                     req.setQuantity(qty);
                     req.setReason("BILL_CREATE");
-                    req.setReferenceId("BILL_CREATE");  // 🔑 Link to this bill for future release if needed
+                    req.setReferenceId(billId);  // 🔑 Link to this bill for future release if needed
                     inventoryClient.reserve(productId, batchNo, req);
                 } else {
                     ReserveRequest req = new ReserveRequest();
                     req.setQuantity(qty);
                     req.setReason("BILL_CREATE");
-                     req.setReferenceId("BILL_CREATE");
+                     req.setReferenceId(billId);
                     inventoryClient.reserve(productId, "", req);
                 }
             }
@@ -153,13 +153,13 @@ public class BillingService {
                 ReserveRequest req = new ReserveRequest();
                 req.setQuantity(qty);
                 req.setReason("BILL_CREATE");
-                 req.setReferenceId("BILL_CREATE");
+                 req.setReferenceId(billId);
                 inventoryClient.reserve(productId, batchNo, req);
             } else {
                 ReserveRequest req = new ReserveRequest();
                 req.setQuantity(qty);
                 req.setReason("BILL_CREATE");
-                 req.setReferenceId("BILL_CREATE");
+                 req.setReferenceId(billId);
                 inventoryClient.reserve(productId, "", req);
             }
         }
@@ -218,7 +218,7 @@ public class BillingService {
             adj.setType("OUT");
             adj.setRemarks("SALE_FINALIZE");
             adj.setExpiryDate(it.getExpiryDate());
-            adj.setReferenceId("BILL_CREATE");  // 🔑 Link to RESERVE transaction
+            adj.setReferenceId(billId);  // 🔑 Link to RESERVE transaction
             inventoryClient.adjustStock(it.getProductId(), adj);
         }
 
@@ -290,7 +290,7 @@ public class BillingService {
             try {
                 ReserveRequest releaseReq = new ReserveRequest();
                 releaseReq.setQuantity(item.getQuantity());
-                releaseReq.setReferenceId("BILL_CREATE");  // Match the reference ID from reservation
+                releaseReq.setReferenceId(billId);  // Match the reference ID from reservation
                 
                 // Call inventory service to release (convert RESERVE to IN)
                 inventoryClient.releaseStock(item.getProductId(), releaseReq);
