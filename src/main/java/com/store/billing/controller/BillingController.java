@@ -13,9 +13,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.store.billing.dto.BillingRequest;
+import com.store.billing.dto.PaginatedResponse;
 import com.store.billing.entity.Bill;
 import com.store.billing.entity.Billing;
+import com.store.billing.entity.BillItem;
 import com.store.billing.repository.BillRepository;
+import com.store.billing.repository.BillingRepository;
 import com.store.billing.service.BillingService;
 
 import lombok.RequiredArgsConstructor;
@@ -27,6 +30,7 @@ public class BillingController {
 
     private final BillingService billingService;
     private final BillRepository billRepository;
+    private final BillingRepository billingRepository;
 
     @PostMapping
     public Bill generate(@RequestBody BillingRequest request) {
@@ -53,6 +57,15 @@ public class BillingController {
     @GetMapping("/customer/{customerId}")
     public List<Bill> getByCustomerId(@PathVariable String customerId) {
         return billRepository.findByCustomerIdOrderByBilledAtDesc(customerId);
+    }
+
+    @GetMapping("/customer/{customerId}/paginated")
+    public ResponseEntity<?> getByCustomerIdPaginated(
+            @PathVariable String customerId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        PaginatedResponse<Bill> response = billingService.getCustomerBillingsPaginated(customerId, page, size);
+        return ResponseEntity.ok(response);
     }
 
 
@@ -88,6 +101,30 @@ public class BillingController {
     @GetMapping("/report")
     public ResponseEntity<?> getProductReports() {
         return ResponseEntity.ok(billingService.getProductReports());
+    }
+
+    @GetMapping("/{billId}/summary")
+    public ResponseEntity<?> getBillSummary(@PathVariable String billId) {
+        Billing billing = billingRepository.findByBillId(billId)
+                .orElseThrow(() -> new RuntimeException("Bill not found with id: " + billId));
+        
+        // Also fetch the Bill entity to get discount information
+        Bill bill = billRepository.findByBillId(billId)
+                .orElse(null);
+        
+        List<BillItem> items = billingService.getBillItems(billId);
+        
+        return ResponseEntity.ok(Map.of(
+                "billId", billing.getBillId(),
+                "status", billing.getStatus(),
+                "createdAt", billing.getCreatedAt(),
+                "createdBy", billing.getCreatedBy(),
+                "discount", bill != null ? (bill.getDiscount() != null ? bill.getDiscount() : 0) : 0,
+                "subTotal", bill != null ? (bill.getSubTotal() != null ? bill.getSubTotal() : 0) : 0,
+                "taxAmount", bill != null ? (bill.getTaxAmount() != null ? bill.getTaxAmount() : 0) : 0,
+                "totalAmount", bill != null ? (bill.getTotalAmount() != null ? bill.getTotalAmount() : 0) : 0,
+                "items", items
+        ));
     }
 
     // Single-item add and duplicate finalize endpoints removed in favour of batch add and single finalize above.

@@ -11,6 +11,7 @@ import com.store.billing.client.PurchaseServiceClient;
 import com.store.billing.dto.BillingRequest;
 import com.store.billing.dto.PurchaseDTO;
 import com.store.billing.dto.ProductReportDTO;
+import com.store.billing.dto.PaginatedResponse;
 import com.store.billing.entity.Bill;
 import com.store.billing.entity.BillStatus;
 import com.store.billing.entity.Billing;
@@ -314,6 +315,13 @@ public class BillingService {
     }
 
     /**
+     * Get all items for a specific bill
+     */
+    public List<BillItem> getBillItems(String billId) {
+        return billItemRepository.findByBillId(billId);
+    }
+
+    /**
      * Get aggregated product report data (for reporting service)
      * Groups BillItems by productId and calculates total quantity and revenue
      */
@@ -333,6 +341,38 @@ public class BillingService {
                                 .sum())
                         .build())
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Get customer bills with pagination
+     */
+    public PaginatedResponse<Bill> getCustomerBillingsPaginated(String customerId, int pageNumber, int pageSize) {
+        // Validate pagination parameters
+        if (pageNumber < 0) pageNumber = 0;
+        if (pageSize <= 0) pageSize = 10;
+        if (pageSize > 100) pageSize = 100; // Max page size limit
+
+        // Get all bills for this customer ordered by date
+        List<Bill> allBills = billRepository.findByCustomerIdOrderByBilledAtDesc(customerId);
+        long totalElements = allBills.size();
+        int totalPages = (int) Math.ceil((double) totalElements / pageSize);
+
+        // Calculate offset and apply pagination
+        int offset = pageNumber * pageSize;
+        List<Bill> pageBills = allBills.stream()
+                .skip(offset)
+                .limit(pageSize)
+                .collect(Collectors.toList());
+
+        return PaginatedResponse.<Bill>builder()
+                .content(pageBills)
+                .pageNumber(pageNumber)
+                .pageSize(pageSize)
+                .totalElements(totalElements)
+                .totalPages(totalPages)
+                .hasNext(pageNumber < totalPages - 1)
+                .hasPrevious(pageNumber > 0)
+                .build();
     }
 }
 
