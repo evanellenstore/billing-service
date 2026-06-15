@@ -127,5 +127,30 @@ public class BillingController {
         ));
     }
 
+    @GetMapping("/{billId}/check-refund")
+    public ResponseEntity<?> checkBillRefund(@PathVariable String billId) {
+        try {
+            boolean isRefunded = billingService.isBillRefunded(billId);
+            return ResponseEntity.ok(Map.of("billId", billId, "isRefunded", isRefunded));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/{billId}/mark-refunded")
+    public ResponseEntity<?> markBillRefunded(@PathVariable String billId, @RequestParam Double amount) {
+        try {
+            billingService.markBillAsRefunded(billId, amount);
+            return ResponseEntity.ok(Map.of(
+                    "status", "success",
+                    "billId", billId,
+                    "refundedAmount", amount,
+                    "message", "Bill marked as refunded"
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
     // Single-item add and duplicate finalize endpoints removed in favour of batch add and single finalize above.
 }

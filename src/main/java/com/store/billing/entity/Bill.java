@@ -31,5 +31,11 @@ public class Bill {
     private Double taxAmount;
     private Double totalAmount;
 
-    private LocalDateTime billedAt; 
+    private LocalDateTime billedAt;
+    
+    @Column(name = "refunded_amount")
+    private Double refundedAmount;
+    
+    @Column(name = "refunded_at")
+    private LocalDateTime refundedAt;
 }

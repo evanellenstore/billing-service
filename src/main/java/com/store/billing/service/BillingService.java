@@ -374,5 +374,32 @@ public class BillingService {
                 .hasPrevious(pageNumber > 0)
                 .build();
     }
+
+    /**
+     * Mark a bill as refunded - prevents duplicate refunds
+     */
+    @Transactional
+    public void markBillAsRefunded(String billId, Double refundAmount) {
+        Bill bill = billRepository.findByBillId(billId)
+                .orElseThrow(() -> new RuntimeException("Bill not found: " + billId));
+        
+        // Check if already refunded
+        if (bill.getRefundedAmount() != null && bill.getRefundedAmount() > 0) {
+            throw new RuntimeException("Bill " + billId + " has already been refunded for amount: " + bill.getRefundedAmount());
+        }
+        
+        bill.setRefundedAmount(refundAmount);
+        bill.setRefundedAt(LocalDateTime.now());
+        billRepository.save(bill);
+    }
+
+    /**
+     * Check if a bill has been refunded
+     */
+    public boolean isBillRefunded(String billId) {
+        Bill bill = billRepository.findByBillId(billId)
+                .orElseThrow(() -> new RuntimeException("Bill not found: " + billId));
+        return bill.getRefundedAmount() != null && bill.getRefundedAmount() > 0;
+    }
 }
 
