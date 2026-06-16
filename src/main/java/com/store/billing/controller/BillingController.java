@@ -207,7 +207,12 @@ public class BillingController {
                     "message", "Bill marked as refunded"
             ));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+            // If it's an idempotent or conflict situation, return 409 for conflicting amounts
+            String msg = e.getMessage();
+            if (msg != null && msg.contains("different amount")) {
+                return ResponseEntity.status(409).body(Map.of("error", msg));
+            }
+            return ResponseEntity.badRequest().body(Map.of("error", msg));
         }
     }
 

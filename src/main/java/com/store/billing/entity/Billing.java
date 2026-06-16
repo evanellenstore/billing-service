@@ -43,5 +43,12 @@ public class Billing {
     @Lob
     @Column(name = "payment_details")
     private String paymentDetails; // raw payment JSON as string (stored as text/blob)
+
+    // Refund metadata (set when a refund is processed)
+    @Column(name = "refunded_amount")
+    private Double refundedAmount;
+
+    @Column(name = "refunded_at")
+    private java.time.LocalDateTime refundedAt;
 }
 

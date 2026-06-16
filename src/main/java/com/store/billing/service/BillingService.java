@@ -409,14 +409,50 @@ public class BillingService {
         Bill bill = billRepository.findByBillId(billId)
                 .orElseThrow(() -> new RuntimeException("Bill not found: " + billId));
         
-        // Check if already refunded
+        // Idempotent handling: if already refunded with same amount, treat as success (no-op).
+        final double EPS = 0.01;
         if (bill.getRefundedAmount() != null && bill.getRefundedAmount() > 0) {
-            throw new RuntimeException("Bill " + billId + " has already been refunded for amount: " + bill.getRefundedAmount());
+            double existing = bill.getRefundedAmount();
+            if (Math.abs(existing - (refundAmount == null ? 0.0 : refundAmount)) < EPS) {
+                // Already refunded for same amount — nothing to do
+                System.out.println("⏱️ markBillAsRefunded: already refunded for same amount: " + existing + " — idempotent no-op");
+                return;
+            } else {
+                throw new RuntimeException("Bill " + billId + " has already been refunded for a different amount: " + existing);
+            }
         }
-        
+
+        // Proceed to set refunded amount and time
         bill.setRefundedAmount(refundAmount);
         bill.setRefundedAt(LocalDateTime.now());
         billRepository.save(bill);
+
+        // Also update the Billing record so summary endpoints reflect refund metadata
+        try {
+            Billing billing = billingRepository.findByBillId(billId)
+                    .orElse(null);
+            if (billing != null) {
+                // If billing already has refund metadata, apply same idempotent logic
+                if (billing.getRefundedAmount() != null && billing.getRefundedAmount() > 0) {
+                    double existingB = billing.getRefundedAmount();
+                    if (Math.abs(existingB - (refundAmount == null ? 0.0 : refundAmount)) < EPS) {
+                        System.out.println("⏱️ Billing record already marked refunded for same amount: " + existingB);
+                        return;
+                    } else {
+                        System.err.println("⚠️ Billing already marked refunded for a different amount: " + existingB + " (requested=" + refundAmount + ")");
+                    }
+                }
+
+                billing.setRefundedAmount(refundAmount);
+                billing.setRefundedAt(LocalDateTime.now());
+                // mark billing as refunded
+                billing.setStatus(BillStatus.REFUNDED);
+                billingRepository.save(billing);
+            }
+        } catch (Exception e) {
+            // non-fatal: log and continue
+            System.err.println("Failed to update Billing refund metadata: " + e.getMessage());
+        }
     }
 
     /**
