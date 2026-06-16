@@ -114,16 +114,75 @@ public class BillingController {
         
         List<BillItem> items = billingService.getBillItems(billId);
         
-        return ResponseEntity.ok(Map.of(
-                "billId", billing.getBillId(),
-                "status", billing.getStatus(),
-                "createdAt", billing.getCreatedAt(),
-                "createdBy", billing.getCreatedBy(),
-                "discount", bill != null ? (bill.getDiscount() != null ? bill.getDiscount() : 0) : 0,
-                "subTotal", bill != null ? (bill.getSubTotal() != null ? bill.getSubTotal() : 0) : 0,
-                "taxAmount", bill != null ? (bill.getTaxAmount() != null ? bill.getTaxAmount() : 0) : 0,
-                "totalAmount", bill != null ? (bill.getTotalAmount() != null ? bill.getTotalAmount() : 0) : 0,
-                "items", items
+        java.util.Map<String, Object> paymentMap = new java.util.HashMap<>();
+        paymentMap.put("mode", billing.getPaymentMode() != null ? billing.getPaymentMode() : "");
+        paymentMap.put("cashPaid", billing.getCashPaid() != null ? billing.getCashPaid() : 0);
+        paymentMap.put("walletUsed", billing.getWalletUsed() != null ? billing.getWalletUsed() : 0);
+        // Try to parse JSON string into object; if not available, return raw string/null
+        Object paymentDetailsObj = null;
+        try {
+            if (billing.getPaymentDetails() != null) {
+                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                paymentDetailsObj = mapper.readValue(billing.getPaymentDetails(), java.util.Map.class);
+            }
+        } catch (Exception e) {
+            paymentDetailsObj = billing.getPaymentDetails();
+        }
+        paymentMap.put("paymentDetails", paymentDetailsObj);
+
+        // --- Automatic refund allocation and recommendation ---
+        double paidCash = billing.getCashPaid() != null ? billing.getCashPaid() : 0.0;
+        double paidWallet = billing.getWalletUsed() != null ? billing.getWalletUsed() : 0.0;
+        double discountAmt = 0.0;
+        if (bill != null && bill.getDiscount() != null) discountAmt = bill.getDiscount();
+
+        String paymentType;
+        if (paidWallet > 0 && paidCash > 0) paymentType = "MIXED";
+        else if (paidWallet > 0) paymentType = "ALL_WALLET";
+        else paymentType = "ALL_CASH";
+
+        // Option A: revert discount to wallet (recommended) -> credit discount back to wallet
+        double walletRefund_revert = paidWallet + discountAmt;
+        double cashRefund_revert = paidCash;
+
+        // Option B: keep discount (no revert) -> do not refund discount; refund only what customer paid
+        double walletRefund_keep = paidWallet;
+        double cashRefund_keep = paidCash;
+
+        java.util.Map<String, Object> refundMap = new java.util.HashMap<>();
+        refundMap.put("paymentType", paymentType);
+        refundMap.put("discount", discountAmt);
+        refundMap.put("recommended", "revertDiscountToWallet");
+        refundMap.put("options", java.util.List.of(
+            Map.of(
+                "id", "revertDiscountToWallet",
+                "label", "Revert discount to wallet (recommended)",
+                "walletRefund", walletRefund_revert,
+                "cashRefund", cashRefund_revert
+            ),
+            Map.of(
+                "id", "keepDiscount",
+                "label", "Keep discount (no revert)",
+                "walletRefund", walletRefund_keep,
+                "cashRefund", cashRefund_keep
+            )
+        ));
+
+        // attach refund suggestion to top-level response
+
+
+        return ResponseEntity.ok(Map.ofEntries(
+            Map.entry("billId", billing.getBillId()),
+            Map.entry("status", billing.getStatus()),
+            Map.entry("createdAt", billing.getCreatedAt()),
+            Map.entry("createdBy", billing.getCreatedBy()),
+            Map.entry("discount", bill != null ? (bill.getDiscount() != null ? bill.getDiscount() : 0) : 0),
+            Map.entry("subTotal", bill != null ? (bill.getSubTotal() != null ? bill.getSubTotal() : 0) : 0),
+            Map.entry("taxAmount", bill != null ? (bill.getTaxAmount() != null ? bill.getTaxAmount() : 0) : 0),
+            Map.entry("totalAmount", bill != null ? (bill.getTotalAmount() != null ? bill.getTotalAmount() : 0) : 0),
+            Map.entry("items", items),
+            Map.entry("payment", paymentMap),
+            Map.entry("refund", refundMap)
         ));
     }
 

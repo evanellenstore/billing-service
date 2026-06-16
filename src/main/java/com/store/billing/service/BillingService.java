@@ -2,29 +2,29 @@ package com.store.billing.service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.store.billing.client.InventoryServiceClient;
 import com.store.billing.client.PurchaseServiceClient;
+import com.store.billing.dto.AdjustRequest;
 import com.store.billing.dto.BillingRequest;
-import com.store.billing.dto.PurchaseDTO;
-import com.store.billing.dto.ProductReportDTO;
 import com.store.billing.dto.PaginatedResponse;
+import com.store.billing.dto.ProductReportDTO;
+import com.store.billing.dto.PurchaseDTO;
+import com.store.billing.dto.ReserveRequest;
 import com.store.billing.entity.Bill;
+import com.store.billing.entity.BillItem;
 import com.store.billing.entity.BillStatus;
 import com.store.billing.entity.Billing;
+import com.store.billing.repository.BillItemRepository;
 import com.store.billing.repository.BillRepository;
 import com.store.billing.repository.BillingRepository;
-import com.store.billing.repository.BillItemRepository;
-import com.store.billing.entity.BillItem;
-import com.store.billing.client.InventoryServiceClient;
-import com.store.billing.dto.ReserveRequest;
-import com.store.billing.dto.AdjustRequest;
-import java.util.Map;
-import java.util.List;
-import java.util.stream.Collectors;
 
 import lombok.RequiredArgsConstructor;
 
@@ -178,14 +178,22 @@ public class BillingService {
 
     @Transactional
     public void finalizeBill(String billId, Map<String, Object> payment) {
-        // Extract data from payment payload
-        String customerId = payment != null ? (String) payment.get("customerId") : null;
-        Double discountAmount = payment != null && payment.get("discount") != null ? 
-                Double.valueOf(String.valueOf(payment.get("discount"))) : 0.0;
-        Double gstAmount = payment != null && payment.get("gst") != null ? 
-                Double.valueOf(String.valueOf(payment.get("gst"))) : 0.0;
-        Double grandTotal = payment != null && payment.get("grandTotal") != null ?
-                Double.valueOf(String.valueOf(payment.get("grandTotal"))) : null;
+        // Support both shapes: either top-level keys or nested under "payment" key (frontend sends { payment: { ... } })
+        Map<String, Object> paymentPayload = payment;
+        if (paymentPayload != null && paymentPayload.get("payment") instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> nested = (Map<String, Object>) paymentPayload.get("payment");
+            paymentPayload = nested;
+        }
+
+        // Extract data from payment payload (now normalized)
+        String customerId = paymentPayload != null ? (String) paymentPayload.get("customerId") : null;
+        Double discountAmount = paymentPayload != null && paymentPayload.get("discount") != null ?
+            Double.valueOf(String.valueOf(paymentPayload.get("discount"))) : 0.0;
+        Double gstAmount = paymentPayload != null && paymentPayload.get("gst") != null ?
+            Double.valueOf(String.valueOf(paymentPayload.get("gst"))) : 0.0;
+        Double grandTotal = paymentPayload != null && paymentPayload.get("grandTotal") != null ?
+            Double.valueOf(String.valueOf(paymentPayload.get("grandTotal"))) : null;
         
         // find items and adjust stock (OUT)
         List<BillItem> items = billItemRepository.findByBillId(billId);
@@ -229,6 +237,30 @@ public class BillingService {
         Billing billing = billingRepository.findByBillId(billId)
                 .orElseThrow(() -> new RuntimeException("Billing not found"));
         billing.setStatus(com.store.billing.entity.BillStatus.PAID);
+        // Persist payment breakdown if provided - use normalized paymentPayload (handles { payment: { ... } })
+        try {
+            if (paymentPayload != null) {
+                String mode = paymentPayload.get("mode") != null ? String.valueOf(paymentPayload.get("mode")) : null;
+                Double cashPaid = paymentPayload.get("cashPaid") != null ? Double.valueOf(String.valueOf(paymentPayload.get("cashPaid"))) : 0.0;
+                Double walletUsed = paymentPayload.get("walletUsed") != null ? Double.valueOf(String.valueOf(paymentPayload.get("walletUsed"))) : 0.0;
+                String paymentDetailsJson = null;
+                try {
+                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    // Store the normalized payment payload as the canonical payment_details
+                    paymentDetailsJson = mapper.writeValueAsString(paymentPayload);
+                } catch (Exception e) {
+                    paymentDetailsJson = paymentPayload.toString();
+                }
+
+                billing.setPaymentMode(mode);
+                billing.setCashPaid(cashPaid);
+                billing.setWalletUsed(walletUsed);
+                billing.setPaymentDetails(paymentDetailsJson);
+            }
+        } catch (Exception e) {
+            // Don't fail finalize if payment parsing/storage has issues; log and continue
+            System.err.println("Failed to persist payment details: " + e.getMessage());
+        }
         billingRepository.save(billing);
         
         // ✅ SUCCESS MESSAGE
@@ -238,36 +270,30 @@ public class BillingService {
         System.out.println("Items Sold: " + items.size());
         System.out.println("============================");
         
-        // Create and save Bill entity with all details
-        if (customerId != null && !customerId.isEmpty()) {
-            // Check if bill already exists
-            java.util.Optional<Bill> existingBill = billRepository.findAll().stream()
-                    .filter(b -> billId.equals(b.getBillId()))
-                    .findFirst();
-            
+        // Create or update Bill entity with all details (always persist even if customerId is missing)
+        try {
+            java.util.Optional<Bill> existingBill = billRepository.findByBillId(billId);
             Bill bill;
             if (existingBill.isPresent()) {
-                // Update existing bill
                 bill = existingBill.get();
-                bill.setCustomerId(customerId);
-                bill.setSubTotal(subTotal > 0 ? subTotal : null);
-                bill.setDiscount(discountAmount > 0 ? discountAmount : null);
-                bill.setTaxAmount(gstAmount > 0 ? gstAmount : null);
-                bill.setTotalAmount(totalAmount > 0 ? totalAmount : null);
             } else {
-                // Create new bill
                 bill = Bill.builder()
                         .billId(billId)
-                        .customerId(customerId)
-                        .subTotal(subTotal > 0 ? subTotal : null)
-                        .discount(discountAmount > 0 ? discountAmount : null)
-                        .taxAmount(gstAmount > 0 ? gstAmount : null)
-                        .totalAmount(totalAmount > 0 ? totalAmount : null)
                         .billedAt(LocalDateTime.now())
                         .build();
             }
+
+            // Update fields
+            if (customerId != null && !customerId.isEmpty()) bill.setCustomerId(customerId);
+            bill.setSubTotal(subTotal > 0 ? subTotal : bill.getSubTotal());
+            bill.setDiscount(discountAmount > 0 ? discountAmount : bill.getDiscount());
+            bill.setTaxAmount(gstAmount > 0 ? gstAmount : bill.getTaxAmount());
+            bill.setTotalAmount(totalAmount > 0 ? totalAmount : bill.getTotalAmount());
+
             billRepository.save(bill);
             System.out.println("Bill saved: " + bill);
+        } catch (Exception e) {
+            System.err.println("Failed to save Bill record: " + e.getMessage());
         }
     }
 

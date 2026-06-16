@@ -29,5 +29,19 @@ public class Billing {
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    // Payment breakdown fields
+    @Column(name = "payment_mode")
+    private String paymentMode; // CASH | WALLET | MIXED
+
+    @Column(name = "cash_paid")
+    private Double cashPaid;
+
+    @Column(name = "wallet_used")
+    private Double walletUsed;
+
+    @Lob
+    @Column(name = "payment_details")
+    private String paymentDetails; // raw payment JSON as string (stored as text/blob)
 }
 
