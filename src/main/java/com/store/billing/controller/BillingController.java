@@ -216,5 +216,32 @@ public class BillingController {
         }
     }
 
+    @PostMapping("/{billId}/refund")
+    public ResponseEntity<?> refundBill(@PathVariable String billId, @RequestBody(required = false) java.util.Map<String, Object> body) {
+        try {
+            String customerId = body != null && body.get("customerId") != null ? String.valueOf(body.get("customerId")) : null;
+            Double walletCredit = body != null && body.get("walletCredit") != null ? Double.valueOf(String.valueOf(body.get("walletCredit"))) : 0.0;
+            Double discountDebit = body != null && body.get("discountDebit") != null ? Double.valueOf(String.valueOf(body.get("discountDebit"))) : 0.0;
+            Double cashRefund = body != null && body.get("cashRefund") != null ? Double.valueOf(String.valueOf(body.get("cashRefund"))) : 0.0;
+
+            billingService.performRefund(billId, customerId, walletCredit, discountDebit, cashRefund);
+
+            return ResponseEntity.ok(Map.of(
+                    "status", "success",
+                    "billId", billId,
+                    "walletCredit", walletCredit,
+                    "discountDebit", discountDebit,
+                    "cashRefund", cashRefund,
+                    "message", "Refund processed"
+            ));
+        } catch (RuntimeException e) {
+            String msg = e.getMessage();
+            if (msg != null && msg.contains("already been refunded for a different amount")) {
+                return ResponseEntity.status(409).body(Map.of("error", msg));
+            }
+            return ResponseEntity.badRequest().body(Map.of("error", msg));
+        }
+    }
+
     // Single-item add and duplicate finalize endpoints removed in favour of batch add and single finalize above.
 }

@@ -38,6 +38,7 @@ public class BillingService {
     private final BillingRepository billingRepository;
     private final BillItemRepository billItemRepository;
     private final InventoryServiceClient inventoryClient;
+    private final com.store.billing.client.UserServiceClient userClient;
 
     private static final double TAX_RATE = 0.18; // 18% GST
 
@@ -453,6 +454,50 @@ public class BillingService {
             // non-fatal: log and continue
             System.err.println("Failed to update Billing refund metadata: " + e.getMessage());
         }
+    }
+
+    /**
+     * Perform refund atomically from billing perspective: attempt wallet adjustments then mark refunded.
+     * Note: cross-service operations cannot be truly atomic without distributed transactions;
+     * this orders operations to minimize inconsistent states: perform wallet ops first, then mark refunded.
+     */
+    @Transactional
+    public void performRefund(String billId, String customerId, Double walletCredit, Double discountDebit, Double cashRefund) {
+        // Basic validation
+        if (walletCredit == null) walletCredit = 0.0;
+        if (discountDebit == null) discountDebit = 0.0;
+        if (cashRefund == null) cashRefund = 0.0;
+
+        // Ensure bill exists and not already refunded
+        Bill bill = billRepository.findByBillId(billId)
+                .orElseThrow(() -> new RuntimeException("Bill not found: " + billId));
+        final double EPS = 0.01;
+        if (bill.getRefundedAmount() != null && bill.getRefundedAmount() > 0) {
+            double existing = bill.getRefundedAmount();
+            if (Math.abs(existing - (walletCredit - discountDebit)) < EPS) {
+                // already refunded for same effective wallet change
+                return;
+            }
+            throw new RuntimeException("Bill " + billId + " has already been refunded for a different amount: " + existing);
+        }
+
+        // Perform wallet operations via user service if customerId provided
+        try {
+            if (discountDebit > 0 && customerId != null && !customerId.isBlank()) {
+                java.util.Map<String, Object> req = java.util.Map.of("amount", discountDebit, "description", "Discount reversal for Bill " + billId);
+                userClient.deductFromWallet(customerId, req);
+            }
+            if (walletCredit > 0 && customerId != null && !customerId.isBlank()) {
+                java.util.Map<String, Object> req2 = java.util.Map.of("amount", walletCredit, "description", "Refund for Bill " + billId);
+                userClient.addToWallet(customerId, req2);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to perform wallet operations: " + e.getMessage(), e);
+        }
+
+        // After wallet ops succeeded, mark the bill as refunded with net wallet change
+        double netWalletChange = (walletCredit - discountDebit);
+        markBillAsRefunded(billId, netWalletChange);
     }
 
     /**
