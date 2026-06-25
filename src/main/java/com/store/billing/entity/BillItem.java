@@ -33,6 +33,7 @@ public class BillItem {
     private Long productId;
     private String batchNo;
     private String name;
+    private String nameHi;
     private String sku;
     private Integer quantity;
     private Double price;
